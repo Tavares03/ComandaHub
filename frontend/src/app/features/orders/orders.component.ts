@@ -17,7 +17,7 @@ import {
 } from 'lucide-angular';
 
 import { ApiService } from '../../core/api.service';
-import { Courier, FulfillmentType, Order, OrderStatus } from '../../core/models';
+import { CancellationReason, Courier, FulfillmentType, Order, OrderStatus } from '../../core/models';
 import { TenantService } from '../../core/tenant.service';
 import { ToastService } from '../../core/toast.service';
 import {
@@ -29,6 +29,7 @@ import {
   sourceClass,
   sourceLabel,
   statusClass,
+  eventLabel,
   statusLabel,
   waitLabel
 } from '../../shared/status';
@@ -88,6 +89,9 @@ import { ItemOptionsComponent } from '../../shared/item-options.component';
                   <div class="flex items-start justify-between gap-2">
                     <div>
                       <p class="font-extrabold text-zinc-950">{{ order.order_number }}</p>
+                      @if (order.external_display_id) {
+                        <p class="text-xs font-extrabold text-red-600">iFood #{{ order.external_display_id }}</p>
+                      }
                       <p class="text-xs font-semibold text-zinc-500">{{ waitLabel(order.created_at) }} na fila</p>
                     </div>
                     <span class="rounded-full px-2 py-0.5 text-[11px] font-extrabold ring-1" [ngClass]="sourceClass(order.source)">{{ sourceLabel(order.source) }}</span>
@@ -105,6 +109,9 @@ import { ItemOptionsComponent } from '../../shared/item-options.component';
 
                   @if (order.notes) {
                     <div class="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">{{ order.notes }}</div>
+                  }
+                  @if (order.marketplace_delivery && order.status === 'READY') {
+                    <p class="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Aguardando o entregador do iFood retirar</p>
                   }
 
                   <div class="mt-3 flex items-center justify-between border-t border-zinc-100 pt-3">
@@ -164,7 +171,7 @@ import { ItemOptionsComponent } from '../../shared/item-options.component';
       <aside class="fixed bottom-0 right-0 top-0 z-50 w-full overflow-y-auto bg-white shadow-2xl sm:w-[440px]" (click)="$event.stopPropagation()">
         <div class="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white p-4">
           <div>
-            <p class="text-xs font-bold uppercase text-zinc-400">Pedido</p>
+            <p class="text-xs font-bold uppercase text-zinc-400">Pedido{{ order.external_display_id ? ' - iFood #' + order.external_display_id : '' }}</p>
             <h2 class="text-xl font-extrabold text-zinc-950">{{ order.order_number }}</h2>
           </div>
           <button class="rounded-md border border-zinc-200 p-2" (click)="selectedOrder.set(null)">
@@ -176,7 +183,7 @@ import { ItemOptionsComponent } from '../../shared/item-options.component';
           <div class="print-area thermal-ticket app-card p-4">
             <div class="mb-4 border-b border-dashed border-zinc-300 pb-3">
               <p class="text-lg font-extrabold">ComandaHub</p>
-              <p class="text-sm font-bold">{{ order.order_number }} - {{ sourceLabel(order.source) }}</p>
+              <p class="text-sm font-bold">{{ order.order_number }} - {{ sourceLabel(order.source) }}{{ order.external_display_id ? ' #' + order.external_display_id : '' }}</p>
               <p class="text-xs">{{ order.created_at | date:'dd/MM/yyyy HH:mm' }}</p>
             </div>
             <div class="space-y-2">
@@ -253,10 +260,10 @@ import { ItemOptionsComponent } from '../../shared/item-options.component';
             <div class="space-y-2">
               @for (event of order.events; track event.id) {
                 <div class="rounded-lg bg-zinc-50 p-3 text-sm">
-                  <p class="font-bold">{{ event.event_type }}</p>
+                  <p class="font-bold">{{ eventLabel(event.event_type) }}</p>
                   <p class="text-zinc-500">{{ event.created_at | date:'dd/MM/yyyy HH:mm:ss' }}</p>
                   @if (event.new_status) {
-                    <p class="text-zinc-600">{{ event.previous_status || 'Inicio' }} -> {{ event.new_status }}</p>
+                    <p class="text-zinc-600">{{ event.previous_status ? statusLabel(event.previous_status) : 'Inicio' }} -> {{ statusLabel(event.new_status) }}</p>
                   }
                 </div>
               }
@@ -297,6 +304,26 @@ import { ItemOptionsComponent } from '../../shared/item-options.component';
         </div>
       </section>
     }
+
+    @if (ifoodCancel(); as pending) {
+      <div class="fixed inset-0 z-[60] bg-zinc-950/40" (click)="ifoodCancel.set(null)"></div>
+      <section class="fixed inset-x-0 bottom-0 z-[60] max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:inset-auto sm:left-1/2 sm:top-1/2 sm:w-[460px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
+               role="dialog" aria-modal="true" aria-label="Cancelar pedido do iFood">
+        <p class="text-xs font-bold uppercase text-red-600">{{ pending.order.order_number }} - iFood #{{ pending.order.external_display_id }}</p>
+        <h2 class="text-xl font-extrabold text-zinc-950">Por que cancelar?</h2>
+        <p class="mt-1 text-xs text-zinc-500">O motivo vai para o iFood e conta nos indicadores da loja. O pedido sai da tela quando o iFood confirmar.</p>
+        <div class="mt-4 grid gap-2">
+          @for (reason of pending.reasons; track reason.code) {
+            <button type="button" class="focus-ring rounded-lg border border-zinc-200 px-4 py-3 text-left text-sm font-bold hover:border-red-400 hover:bg-red-50"
+                    (click)="confirmIfoodCancel(pending.order, reason)">
+              {{ reason.description }}
+            </button>
+          } @empty {
+            <p class="text-sm text-zinc-500">O iFood nao liberou motivos de cancelamento para este pedido agora.</p>
+          }
+        </div>
+      </section>
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush
 })
@@ -318,6 +345,8 @@ export class OrdersComponent implements OnDestroy {
   readonly activeCouriers = computed(() => this.couriers().filter((courier) => courier.active));
   /** Pedido esperando a escolha do motoboy */
   readonly courierPick = signal<Order | null>(null);
+  /** Pedido do iFood esperando o motivo oficial de cancelamento */
+  readonly ifoodCancel = signal<{ order: Order; reasons: CancellationReason[] } | null>(null);
 
   constructor() {
     effect(() => {
@@ -382,7 +411,31 @@ export class OrdersComponent implements OnDestroy {
   }
 
   actions(order: Order): OrderStatus[] {
-    return nextStatuses(order.status, order.fulfillment_type);
+    return nextStatuses(order.status, order.fulfillment_type, Boolean(order.marketplace_delivery));
+  }
+
+  /** Pedido real do iFood: o cancelamento usa os motivos oficiais e so vale quando o iFood confirmar. */
+  private askIfoodCancel(order: Order): void {
+    const establishment = this.tenant.current();
+    if (!establishment) return;
+    this.api.ifoodCancellationReasons(establishment.id, order.id).subscribe({
+      next: (reasons) => this.ifoodCancel.set({ order, reasons }),
+      error: (err) => this.toasts.show('Nao foi possivel cancelar', err?.error?.detail ?? 'O iFood nao respondeu. Tente de novo.', 'error')
+    });
+  }
+
+  confirmIfoodCancel(order: Order, reason: CancellationReason): void {
+    const establishment = this.tenant.current();
+    if (!establishment) return;
+    this.ifoodCancel.set(null);
+    this.api.updateOrderStatus(establishment.id, order.id, 'CANCELED', reason.description, null, reason.code).subscribe({
+      next: (updated) => {
+        this.orders.update((items) => items.map((item) => (item.id === updated.id ? updated : item)));
+        if (this.selectedOrder()?.id === updated.id) this.selectedOrder.set(updated);
+        this.toasts.show('Cancelamento solicitado', 'O pedido sai da central assim que o iFood confirmar.', 'info');
+      },
+      error: (err) => this.toasts.show('O iFood recusou', err?.error?.detail ?? 'Tente de novo.', 'error')
+    });
   }
 
   /** Ao sair para entrega, pergunta qual motoboy levou (se houver motoboys cadastrados). */
@@ -394,6 +447,10 @@ export class OrdersComponent implements OnDestroy {
       return;
     }
     this.courierPick.set(null);
+    if (status === 'CANCELED' && order.integration === 'IFOOD') {
+      this.askIfoodCancel(order);
+      return;
+    }
     let reason: string | undefined;
     if (status === 'CANCELED') {
       const typed = window.prompt('Informe o motivo do cancelamento');
@@ -456,6 +513,7 @@ export class OrdersComponent implements OnDestroy {
   }
 
   waitLabel = waitLabel;
+  eventLabel = eventLabel;
 
   actionLabel(status: OrderStatus): string {
     return {

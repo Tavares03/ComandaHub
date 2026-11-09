@@ -32,6 +32,7 @@ Kanban de pedidos, tela da cozinha, caixa, estoque com ficha técnica, clientes 
 - [Credenciais e roteiro de demonstração](#credenciais-e-roteiro-de-demonstração)
 - [Perfis e permissões](#perfis-e-permissões)
 - [Configuração](#configuração)
+- [Integração com o iFood](#integração-com-o-ifood)
 - [API](#api)
 - [Testes e qualidade](#testes-e-qualidade)
 - [Deploy em produção](#deploy-em-produção)
@@ -51,7 +52,7 @@ Um restaurante que vende pelo iFood, pelo 99Food, pelo WhatsApp e no balcão cos
 
 É um sistema **multi-tenant**: um usuário pode trabalhar em várias lojas, com um perfil diferente em cada uma, e os dados de uma loja nunca aparecem em outra.
 
-> As integrações com iFood e 99Food funcionam em **modo simulado** pelo *Laboratório de pedidos*: os conectores normalizam pedidos no mesmo formato que a integração oficial usaria (veja `backend/app/connectors`). A conexão real depende das credenciais de cada loja junto aos marketplaces.
+> **iFood:** integração real pela Merchant API oficial (veja [Integração com o iFood](#integração-com-o-ifood)): os pedidos chegam sozinhos na Central e os status voltam para o iFood. **99Food:** por enquanto em modo simulado pelo *Laboratório de pedidos* (a plataforma deles exige cadastro com CNPJ aprovado).
 
 ## Telas
 
@@ -67,6 +68,7 @@ Um restaurante que vende pelo iFood, pelo 99Food, pelo WhatsApp e no balcão cos
 
 ### Operação
 - **Central de pedidos em Kanban**: novos → aceitos → em preparo → prontos → saiu para entrega → finalizados, com transições validadas no backend, aviso sonoro de pedido novo, detalhes, histórico de eventos e impressão de comanda (80 mm).
+- **iFood integrado**: pedidos reais entram na Central com o número do iFood e os valores pagos pelo cliente; aceitar, preparar, pronto e despachar são enviados ao iFood, e o cancelamento usa os motivos oficiais.
 - **Sino no topo** com a contagem de pedidos aguardando aceite, visível de qualquer tela.
 - **Tela da Cozinha** com cards grandes, tempo na fila e ações de preparo.
 - **Pedido local** (balcão, retirada e delivery próprio) com busca, filtro por categoria e cálculo de valores **sempre no servidor**.
@@ -281,6 +283,43 @@ Variáveis de ambiente da API (em `backend/.env` ou no ambiente do container):
 | `BACKEND_CORS_ORIGINS` | `http://localhost:4200,...` | Origens liberadas (lista separada por vírgula) |
 | `LOG_LEVEL` | `INFO` | Logs estruturados em JSON (structlog) |
 | `SEED_DEMO_DATA` | `false` (imagem) / `true` (compose dev) | Carrega os dados demo na subida do container |
+| `IFOOD_CLIENT_ID` / `IFOOD_CLIENT_SECRET` | vazio | Credenciais do app **centralizado** do iFood. Vazio = integração desligada |
+| `IFOOD_POLLING_ENABLED` | `true` | Busca pedidos no iFood a cada 30 s (ligue em uma única instância da API) |
+
+## Integração com o iFood
+
+Usa a [Merchant API](https://developer.ifood.com.br) com um app **centralizado**: um único servidor atende todas as lojas que autorizaram o app.
+
+```mermaid
+sequenceDiagram
+    participant I as iFood
+    participant A as API ComandaHub
+    participant C as Central / Cozinha
+    loop a cada 30 s
+        A->>I: GET events:polling (mantém a loja aberta)
+        I-->>A: PLACED, CONFIRMED, CANCELLED...
+        A->>I: acknowledgment
+    end
+    A->>C: pedido novo com preços do iFood
+    C->>A: aceitar / pronto / despachar / cancelar
+    A->>I: confirm / readyToPickup / dispatch / requestCancellation
+```
+
+**Como ligar:**
+
+1. Crie uma conta no [Portal do Desenvolvedor do iFood](https://developer.ifood.com.br). O perfil *Pessoal/Estudante* já dá uma loja e apps de teste. Homologar e atender lojas reais exige o perfil *Profissional* (com CNPJ).
+2. Copie o *Client ID* e o *Client Secret* do app **centralizado** para `backend/.env` (sem Docker) ou para o `.env` da raiz (Docker), nas variáveis `IFOOD_CLIENT_ID` e `IFOOD_CLIENT_SECRET`.
+3. Reinicie a API e, em **Configurações → Integrações**, informe o ID da loja no iFood (*merchant ID*). O painel mostra se a loja está aberta no iFood.
+4. Crie pedidos em **Pedidos de teste** no portal do iFood: eles aparecem na Central com o número do iFood.
+
+**Como funciona:**
+
+- **Preços**: o pedido entra com os valores que o cliente pagou no iFood (itens, complementos, taxa de entrega e descontos), sem recálculo.
+- **Cardápio**: cada item é ligado ao produto do ComandaHub pelo *código externo* (o id do produto) ou pelo nome igual. Itens ligados dão baixa no estoque e entram no custo; os demais aparecem com nome e preço do iFood.
+- **Status**: aceitar → `confirm`, iniciar preparo → `startPreparation`, pronto → `readyToPickup` (retirada ou entrega do iFood), saiu para entrega → `dispatch` (entrega própria). Se o iFood recusar, o status não muda no ComandaHub.
+- **Entrega do iFood**: a loja só deixa o pedido pronto; o entregador do iFood retira e o iFood finaliza o pedido.
+- **Cancelamento**: o atendente escolhe um dos motivos oficiais do iFood; o pedido só é cancelado (com devolução do estoque) quando o iFood confirmar.
+- **Segurança**: a loja é ligada pelo ID informado pelo dono e validada contra as lojas que autorizaram o app; uma loja do iFood não pode ser ligada a duas lojas do ComandaHub.
 
 ## API
 
@@ -296,6 +335,7 @@ A documentação interativa fica em **`/docs`** (Swagger) e **`/redoc`**. Todas 
 | Entregas | `delivery-zones`, `couriers`, `couriers/report` |
 | Caixa | `cash/current`, `cash/open`, `cash/movements`, `cash/close`, `cash/sessions` |
 | Relatórios | `dashboard`, `reports/overview`, `sales-by-channel`, `top-products`, `profit-by-channel` |
+| iFood | `GET/PUT /integrations/ifood`, `GET /orders/{id}/ifood/cancellation-reasons` |
 | Público (sem login) | `GET /public/stores/{slug}`, `POST /public/stores/{slug}/orders`, `GET /public/orders/{token}` |
 | Simulador (só dev) | `POST /dev/establishments/{id}/simulate-order` |
 
@@ -363,6 +403,7 @@ comandahub/
 │   │   ├── api/v1/endpoints/   # rotas REST (auth, pedidos, cardápio, caixa, público...)
 │   │   ├── connectors/         # normalização de pedidos de marketplaces (simulados)
 │   │   ├── core/               # config, segurança, dependências, limite de tentativas, fuso
+│   │   ├── integrations/ifood/ # cliente da Merchant API, conversão de pedidos, eventos e polling
 │   │   ├── models/             # SQLAlchemy
 │   │   ├── schemas/            # Pydantic (contratos da API)
 │   │   ├── services/           # regras de negócio
@@ -397,7 +438,9 @@ comandahub/
 
 ## Roadmap
 
-- [ ] Integração oficial com iFood e 99Food (OAuth e webhooks dos marketplaces)
+- [x] Integração com o iFood: pedidos, status e cancelamento (Merchant API)
+- [ ] Sincronizar o cardápio do ComandaHub com o catálogo do iFood (preços e pausas)
+- [ ] Integração real com o 99Food
 - [ ] Atualização em tempo real via WebSocket / Server-Sent Events
 - [ ] Emissão de NFC-e
 - [ ] Impressão direta em impressora térmica (ESC/POS), sem diálogo do navegador

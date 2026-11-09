@@ -65,13 +65,35 @@ export function statusClass(status: OrderStatus): string {
   }[status];
 }
 
-export function nextStatuses(status: OrderStatus, fulfillment: FulfillmentType): OrderStatus[] {
+/** marketplaceDelivery: entregador do iFood retira na loja (a loja nao despacha) */
+export function nextStatuses(status: OrderStatus, fulfillment: FulfillmentType, marketplaceDelivery = false): OrderStatus[] {
   if (status === 'NEW') return ['ACCEPTED', 'CANCELED'];
   if (status === 'ACCEPTED') return ['PREPARING', 'CANCELED'];
   if (status === 'PREPARING') return ['READY', 'CANCELED'];
-  if (status === 'READY') return fulfillment === 'DELIVERY' ? ['OUT_FOR_DELIVERY', 'CANCELED'] : ['FINISHED', 'CANCELED'];
+  if (status === 'READY') return fulfillment === 'DELIVERY' && !marketplaceDelivery ? ['OUT_FOR_DELIVERY', 'CANCELED'] : ['FINISHED', 'CANCELED'];
   if (status === 'OUT_FOR_DELIVERY') return ['FINISHED', 'CANCELED'];
   return [];
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  ORDER_CREATED: 'Pedido criado',
+  ORDER_STATUS_CHANGED: 'Status alterado',
+  PAYMENT_STATUS_CHANGED: 'Pagamento atualizado',
+  IFOOD_CANCELLATION_REQUESTED: 'Cancelamento solicitado ao iFood',
+  IFOOD_CANCELLATION_REQUEST_FAILED: 'iFood recusou o cancelamento',
+  IFOOD_SYNC_WARNING: 'Aviso na sincronizacao com o iFood',
+  IFOOD_ASSIGN_DRIVER: 'iFood: entregador designado',
+  IFOOD_GOING_TO_ORIGIN: 'iFood: entregador a caminho da loja',
+  IFOOD_ARRIVED_AT_ORIGIN: 'iFood: entregador chegou na loja',
+  IFOOD_COLLECTED: 'iFood: pedido coletado',
+  IFOOD_ARRIVED_AT_DESTINATION: 'iFood: entregador chegou no cliente'
+};
+
+/** Nome amigavel do evento do historico (eventos novos do iFood aparecem como "iFood: CODIGO") */
+export function eventLabel(eventType: string): string {
+  if (EVENT_LABELS[eventType]) return EVENT_LABELS[eventType];
+  if (eventType.startsWith('IFOOD_')) return `iFood: ${eventType.slice(6).replace(/_/g, ' ').toLowerCase()}`;
+  return eventType;
 }
 
 /** Tempo desde a criacao do pedido: "8 min", "2 h 05 min", "3 dias" */

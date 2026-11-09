@@ -14,12 +14,23 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 720
     backend_cors_origins: str = "http://localhost:4200,http://localhost:8080,http://127.0.0.1:4200"
     log_level: str = "INFO"
+    # Integracao iFood (app centralizado do Portal do Desenvolvedor). Vazio = integracao desligada.
+    ifood_client_id: str = ""
+    ifood_client_secret: str = ""
+    ifood_api_url: str = "https://merchant-api.ifood.com.br"
+    # Polling de eventos a cada 30 s (tambem mantem a loja aberta no iFood). Ligue em UMA instancia so.
+    ifood_polling_enabled: bool = True
+    ifood_polling_interval_seconds: int = 30
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.backend_cors_origins.split(",") if origin.strip()]
+
+    @property
+    def ifood_configured(self) -> bool:
+        return bool(self.ifood_client_id.strip() and self.ifood_client_secret.strip())
 
     @property
     def is_production(self) -> bool:

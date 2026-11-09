@@ -262,6 +262,12 @@ export interface Order {
   neighborhood?: string | null;
   courier_id?: string | null;
   courier_name?: string | null;
+  /** "IFOOD" = pedido real do iFood (status sincronizado com o iFood) */
+  integration?: string | null;
+  /** Numero curto do pedido no iFood (o cliente e o entregador falam por ele) */
+  external_display_id?: string | null;
+  /** Entrega feita pelo entregador do iFood: a loja so deixa pronto */
+  marketplace_delivery?: boolean;
   id: string;
   establishment_id: string;
   external_order_id?: string | null;
@@ -312,6 +318,21 @@ export interface ReportOverview {
   canceled_count: number;
   in_progress_count: number;
   finished_count: number;
+}
+
+export interface IfoodIntegration {
+  /** Credenciais do app (IFOOD_CLIENT_ID/SECRET) configuradas no servidor */
+  configured: boolean;
+  polling: boolean;
+  merchant_id?: string | null;
+  merchant_name?: string | null;
+  store_status?: { available: boolean; title: string; subtitle?: string | null } | null;
+  error?: string | null;
+}
+
+export interface CancellationReason {
+  code: string;
+  description: string;
 }
 
 export interface EstablishmentUser {

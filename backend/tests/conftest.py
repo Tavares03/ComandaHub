@@ -11,6 +11,10 @@ from sqlalchemy.pool import StaticPool
 
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret-key-with-at-least-32-bytes!!"
+# Testes nunca falam com o iFood de verdade (o backend/.env pode ter credenciais reais)
+os.environ["IFOOD_CLIENT_ID"] = ""
+os.environ["IFOOD_CLIENT_SECRET"] = ""
+os.environ["IFOOD_POLLING_ENABLED"] = "false"
 
 from app.core.deps import get_db  # noqa: E402
 from app.core.rate_limit import limiter  # noqa: E402

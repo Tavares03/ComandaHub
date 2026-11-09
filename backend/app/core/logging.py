@@ -7,6 +7,8 @@ import structlog
 
 def configure_logging(level: str = "INFO") -> None:
     logging.basicConfig(format="%(message)s", level=getattr(logging, level.upper(), logging.INFO))
+    # O polling do iFood faz uma chamada a cada 30 s: o log de cada requisicao HTTP so polui
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     structlog.configure(
         processors=[
             structlog.processors.TimeStamper(fmt="iso"),

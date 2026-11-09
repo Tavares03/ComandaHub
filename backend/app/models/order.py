@@ -5,7 +5,7 @@ from enum import Enum
 
 from datetime import datetime
 
-from sqlalchemy import Enum as SAEnum, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Enum as SAEnum, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, IdMixin, TimestampMixin, UTCDateTime
@@ -83,6 +83,12 @@ class Order(Base, IdMixin, TimestampMixin):
     courier_id: Mapped[str | None] = mapped_column(ForeignKey("couriers.id", ondelete="SET NULL"), nullable=True, index=True)
     # Codigo para o cliente acompanhar o pedido do cardapio online (sem login)
     public_token: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True, index=True)
+    # Pedido real de marketplace ("IFOOD"): mudancas de status sao enviadas para la. Simulados ficam None.
+    integration: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Numero curto que o marketplace mostra ao cliente e ao entregador (ex.: iFood "4231")
+    external_display_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Entrega feita pelo entregador do marketplace (a loja so deixa pronto; nao despacha)
+    marketplace_delivery: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     establishment = relationship("Establishment", back_populates="orders")
     courier = relationship("Courier")

@@ -7,6 +7,7 @@ import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { Establishment, EstablishmentUser, UserRole } from '../../core/models';
 import { ROLE_HINTS, ROLE_LABELS } from '../../core/roles';
+import { IntegrationsSettingsComponent } from './integrations-settings.component';
 import { OperationsSettingsComponent } from './operations-settings.component';
 import { TenantService } from '../../core/tenant.service';
 import { ToastService } from '../../core/toast.service';
@@ -15,7 +16,7 @@ import { errorMessage } from '../../shared/order-options';
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, LucideAngularModule, OperationsSettingsComponent],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, LucideAngularModule, OperationsSettingsComponent, IntegrationsSettingsComponent],
   template: `
     <section class="grid gap-5 xl:grid-cols-[1fr_420px]">
       <div class="min-w-0 space-y-5">
@@ -70,22 +71,7 @@ import { errorMessage } from '../../shared/order-options';
 
         <app-operations-settings class="block" />
 
-        <article class="app-card p-5">
-          <div class="mb-4 flex items-center gap-2">
-            <i-lucide class="text-blue-600" name="plug-zap" [size]="20" />
-            <h2 class="text-lg font-extrabold text-zinc-950">Integracoes</h2>
-          </div>
-          <div class="grid gap-3 md:grid-cols-3">
-            @for (integration of integrations; track integration.name) {
-              <div class="rounded-lg border border-zinc-200 p-4">
-                <p class="font-extrabold text-zinc-950">{{ integration.name }}</p>
-                <p class="mt-2 inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-bold text-zinc-700">
-                  <i-lucide name="check-circle-2" [size]="14" /> {{ integration.status }}
-                </p>
-              </div>
-            }
-          </div>
-        </article>
+        <app-integrations-settings class="block" />
       </div>
 
       <aside class="app-card h-max overflow-hidden">
@@ -188,11 +174,6 @@ export class SettingsComponent {
     preparation_time: [18, [Validators.required, Validators.min(1)]]
   });
 
-  readonly integrations = [
-    { name: 'iFood', status: 'Modo demonstracao' },
-    { name: '99Food', status: 'Modo demonstracao' },
-    { name: 'Delivery proprio', status: 'Disponivel' }
-  ];
 
   constructor() {
     effect(() => {

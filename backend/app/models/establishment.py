@@ -32,6 +32,8 @@ class Establishment(Base, IdMixin, TimestampMixin):
     online_menu_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Loja aberta/fechada para pedidos online: o cardapio continua visivel, mas nao aceita pedido fechado
     online_orders_open: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    # Loja correspondente no iFood (merchantId): pedidos dela caem nesta loja do ComandaHub
+    ifood_merchant_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
 
     memberships = relationship("EstablishmentMembership", back_populates="establishment", cascade="all, delete-orphan")
     categories = relationship("Category", back_populates="establishment", cascade="all, delete-orphan")

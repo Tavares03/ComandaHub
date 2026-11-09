@@ -31,7 +31,7 @@ import { sourceLabel, statusClass, statusLabel, waitLabel } from '../../shared/s
             <div class="flex items-start justify-between gap-3">
               <div>
                 <p class="text-2xl font-extrabold text-zinc-950">{{ order.order_number }}</p>
-                <p class="mt-1 text-sm font-bold text-zinc-500">{{ sourceLabel(order.source) }} - {{ waitLabel(order.created_at) }}</p>
+                <p class="mt-1 text-sm font-bold text-zinc-500">{{ sourceLabel(order.source) }}{{ order.external_display_id ? ' #' + order.external_display_id : '' }} - {{ waitLabel(order.created_at) }}</p>
               </div>
               <span class="rounded-full px-3 py-1 text-sm font-extrabold ring-1" [ngClass]="statusClass(order.status)">{{ statusLabel(order.status) }}</span>
             </div>

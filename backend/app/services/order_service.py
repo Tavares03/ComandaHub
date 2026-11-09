@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -472,6 +473,11 @@ def validate_transition(order: Order, new_status: OrderStatus, cancel_reason: st
         raise unprocessable(f"Transicao invalida: {order.status.value} para {new_status.value}")
     if new_status == OrderStatus.CANCELED and not (cancel_reason or "").strip():
         raise unprocessable("Informe o motivo do cancelamento")
+    if order.marketplace_delivery:
+        # Entregador do iFood retira na loja: a loja so deixa pronto
+        if new_status == OrderStatus.OUT_FOR_DELIVERY:
+            raise unprocessable("A entrega deste pedido e feita pelo entregador do iFood")
+        return
     if order.fulfillment_type == FulfillmentType.DELIVERY and order.status == OrderStatus.READY and new_status == OrderStatus.FINISHED:
         raise unprocessable("Pedidos delivery precisam sair para entrega antes de finalizar")
 
@@ -487,13 +493,21 @@ def assign_courier(db: Session, establishment_id: str, order: Order, courier_id:
 
 
 def update_order_status(db: Session, establishment_id: str, order_id: str, new_status: OrderStatus,
-                        cancel_reason: str | None = None, courier_id: str | None = None) -> Order:
+                        cancel_reason: str | None = None, courier_id: str | None = None,
+                        cancel_code: str | None = None) -> Order:
     order = get_order_or_404(db, establishment_id, order_id)
     validate_transition(order, new_status, cancel_reason)
     if new_status == OrderStatus.OUT_FOR_DELIVERY and courier_id:
         assign_courier(db, establishment_id, order, courier_id)
     if new_status == order.status:
         return order
+    if order.integration == "IFOOD":
+        from app.integrations.ifood import service as ifood_service
+
+        # Avisa o iFood antes de mudar aqui. Cancelamento so vale quando o iFood confirmar (evento CAN).
+        if ifood_service.push_status(db, order, new_status, cancel_code, cancel_reason):
+            db.commit()
+            return get_order_or_404(db, establishment_id, order_id)
 
     previous = order.status
     order.status = new_status
@@ -523,3 +537,161 @@ def update_payment_status(db: Session, establishment_id: str, order_id: str, pay
     add_event(db, order, "PAYMENT_STATUS_CHANGED", None, None, {"from": previous.value, "to": payment_status.value})
     db.commit()
     return get_order_or_404(db, establishment_id, order_id)
+
+
+# ------------------------------------------------------------------ pedidos reais de marketplace (iFood)
+
+STATUS_RANK = {
+    OrderStatus.NEW: 0,
+    OrderStatus.ACCEPTED: 1,
+    OrderStatus.PREPARING: 2,
+    OrderStatus.READY: 3,
+    OrderStatus.OUT_FOR_DELIVERY: 4,
+    OrderStatus.FINISHED: 5,
+}
+
+
+def _normalize_name(value: str | None) -> str:
+    ascii_text = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode()
+    return " ".join(ascii_text.lower().split())
+
+
+@dataclass(frozen=True)
+class _Choice:
+    option: ProductOption
+    quantity: int
+
+
+def _catalog_index(db: Session, establishment_id: str) -> tuple[dict[str, Product], dict[str, Product]]:
+    products = db.scalars(
+        select(Product)
+        .where(Product.establishment_id == establishment_id)
+        .options(
+            selectinload(Product.option_groups).selectinload(ProductOptionGroup.options),
+            selectinload(Product.ingredient_links).selectinload(ProductIngredient.ingredient),
+        )
+    ).all()
+    return {product.id: product for product in products}, {_normalize_name(product.name): product for product in products}
+
+
+def _match_option(product: Product, external_code: str | None, name: str) -> ProductOption | None:
+    wanted = _normalize_name(name)
+    for group in product.option_groups:
+        for option in group.options:
+            if (external_code and option.id == external_code) or _normalize_name(option.name) == wanted:
+                return option
+    return None
+
+
+def create_marketplace_order(db: Session, establishment_id: str, data, source: OrderSource, integration: str,
+                             raw_payload: dict | None = None) -> Order:
+    """Pedido real vindo do marketplace: grava com os precos que o cliente pagou la (nao recalcula).
+
+    Cada item e ligado ao produto do cardapio pelo codigo externo (= id do produto no ComandaHub) ou pelo
+    nome. Itens ligados dao baixa no estoque e guardam o custo; os demais entram so com nome e preco.
+    """
+    existing = db.scalar(
+        select(Order).where(Order.establishment_id == establishment_id, Order.source == source, Order.external_order_id == data.external_id)
+    )
+    if existing:
+        return get_order_or_404(db, establishment_id, existing.id)
+
+    by_id, by_name = _catalog_index(db, establishment_id)
+    channel = channel_for_source(source)
+    lines = []
+    for item in data.items:
+        product = by_id.get(item.external_code or "") or by_name.get(_normalize_name(item.name))
+        snapshots, choices = [], []
+        for option in item.options:
+            matched = _match_option(product, option.external_code, option.name) if product else None
+            if matched:
+                choices.append(_Choice(matched, option.quantity))
+            snapshots.append({
+                "option_id": matched.id if matched else None,
+                "group_id": matched.group_id if matched else None,
+                "group_name": option.group_name or (matched.group.name if matched else "Complementos"),
+                "pricing_mode": OptionPricingMode.SUM.value,
+                "name": option.name,
+                "price_delta": str(money(option.unit_price)),
+                "quantity": option.quantity,
+                "notes": None,
+            })
+        usage = stock_service.line_usage(product, choices, channel) if product else {}
+        unit_cost = stock_service.usage_cost(db, usage) if product else None
+        lines.append((item, product, snapshots, usage, unit_cost))
+
+    for _attempt in range(MAX_ORDER_NUMBER_ATTEMPTS):
+        order = Order(
+            establishment_id=establishment_id,
+            source=source,
+            external_order_id=data.external_id,
+            external_display_id=data.display_id,
+            integration=integration,
+            marketplace_delivery=data.marketplace_delivery,
+            order_number=generate_order_number(db, establishment_id),
+            customer_name=data.customer_name,
+            customer_phone=data.customer_phone,
+            delivery_address=data.delivery_address,
+            neighborhood=data.neighborhood,
+            fulfillment_type=data.fulfillment_type,
+            payment_method=data.payment_method,
+            payment_status=data.payment_status,
+            status=OrderStatus.NEW,
+            subtotal=money(data.subtotal),
+            discount=money(data.discount),
+            delivery_fee=money(data.delivery_fee),
+            total=money(data.total),
+            notes=data.notes,
+        )
+        db.add(order)
+        db.flush()
+        order_usage: dict[str, Decimal] = defaultdict(Decimal)
+        for item, product, snapshots, usage, unit_cost in lines:
+            for ingredient_id, quantity in usage.items():
+                order_usage[ingredient_id] += quantity * item.quantity
+            db.add(OrderItem(
+                order_id=order.id,
+                product_id=product.id if product else None,
+                product_name=item.name,
+                quantity=item.quantity,
+                unit_price=money(item.unit_price),
+                total=money(item.total_price),
+                notes=item.notes,
+                selected_options=snapshots,
+                unit_cost=unit_cost,
+            ))
+        stock_service.consume_for_order(db, establishment_id, order.id, dict(order_usage))
+        add_event(db, order, "ORDER_CREATED", None, OrderStatus.NEW,
+                  {"source": source.value, "integration": integration, "raw_payload": raw_payload or {}})
+        try:
+            db.commit()
+            return get_order_or_404(db, establishment_id, order.id)
+        except IntegrityError:
+            db.rollback()
+            existing = db.scalar(
+                select(Order).where(Order.establishment_id == establishment_id, Order.source == source,
+                                    Order.external_order_id == data.external_id)
+            )
+            if existing:
+                return get_order_or_404(db, establishment_id, existing.id)
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nao foi possivel gerar o numero do pedido, tente novamente")
+
+
+def apply_marketplace_status(db: Session, order: Order, new_status: OrderStatus, payload: dict | None = None) -> bool:
+    """Status informado pelo marketplace: so avanca (eventos podem chegar fora de ordem) e cancela de verdade.
+
+    Retorna True se mudou algo. Nao chama o marketplace de volta.
+    """
+    if order.status in TERMINAL_STATUSES or new_status == order.status:
+        return False
+    if new_status != OrderStatus.CANCELED and STATUS_RANK.get(new_status, -1) <= STATUS_RANK.get(order.status, -1):
+        return False
+    previous = order.status
+    order.status = new_status
+    if new_status == OrderStatus.CANCELED:
+        stock_service.return_for_order(db, order.id)
+        customer_service.revert_order(db, order)
+    elif new_status == OrderStatus.FINISHED:
+        customer_service.award_loyalty_point(db, order)
+    add_event(db, order, "ORDER_STATUS_CHANGED", previous, new_status, {"by": order.integration or "marketplace", **(payload or {})})
+    return True

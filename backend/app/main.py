@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +19,25 @@ settings.validate_for_runtime()
 
 logger = structlog.get_logger()
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    poller = None
+    if settings.ifood_polling_enabled:
+        from app.integrations.ifood.client import get_ifood_client
+        from app.integrations.ifood.poller import IfoodPoller
+
+        client = get_ifood_client()
+        if client is not None:
+            poller = IfoodPoller(client, settings.ifood_polling_interval_seconds)
+            poller.start()
+    yield
+    if poller is not None:
+        poller.stop()
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title=settings.app_name,
     version="1.0.0",
     description=(

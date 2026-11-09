@@ -15,6 +15,9 @@ services:
       SECRET_KEY: ${SECRET_KEY:-dev-only-secret-key-troque-em-producao-0123}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:4200,http://127.0.0.1:4200}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      IFOOD_CLIENT_ID: ${IFOOD_CLIENT_ID:-}
+      IFOOD_CLIENT_SECRET: ${IFOOD_CLIENT_SECRET:-}
+      IFOOD_POLLING_ENABLED: ${IFOOD_POLLING_ENABLED:-true}
     extra_hosts:
       # Permite alcancar o PostgreSQL da maquina (tambem no Linux)
       - "host.docker.internal:host-gateway"

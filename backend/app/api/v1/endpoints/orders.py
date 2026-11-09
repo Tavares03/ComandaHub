@@ -138,7 +138,8 @@ def change_order_status(
         require_roles(membership, STAFF_ROLES)
     else:
         require_roles(membership, STAFF_ROLES | {UserRole.KITCHEN})
-    return update_order_status(db, establishment.id, order_id, payload.status, payload.cancel_reason, payload.courier_id)
+    return update_order_status(db, establishment.id, order_id, payload.status, payload.cancel_reason, payload.courier_id,
+                               payload.cancel_code)
 
 
 @router.patch("/{establishment_id}/orders/{order_id}/courier", response_model=OrderOut)

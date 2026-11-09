@@ -7,6 +7,7 @@ import {
   AuthUser,
   AvailabilityRequest,
   AvailabilityResponse,
+  CancellationReason,
   CashSummary,
   Category,
   Coupon,
@@ -19,6 +20,7 @@ import {
   Establishment,
   EstablishmentSummary,
   EstablishmentUser,
+  IfoodIntegration,
   Ingredient,
   IngredientInput,
   LoginResponse,
@@ -127,12 +129,35 @@ export class ApiService {
     return this.http.post<Order>(`${this.baseUrl}/establishments/${establishmentId}/orders`, payload);
   }
 
-  updateOrderStatus(establishmentId: string, orderId: string, status: OrderStatus, cancelReason?: string, courierId?: string | null): Observable<Order> {
+  updateOrderStatus(
+    establishmentId: string,
+    orderId: string,
+    status: OrderStatus,
+    cancelReason?: string,
+    courierId?: string | null,
+    cancelCode?: string | null
+  ): Observable<Order> {
     return this.http.patch<Order>(`${this.baseUrl}/establishments/${establishmentId}/orders/${orderId}/status`, {
       status,
       cancel_reason: cancelReason,
-      courier_id: courierId ?? null
+      courier_id: courierId ?? null,
+      cancel_code: cancelCode ?? null
     });
+  }
+
+  // ---------------------------------------------------------------- integracao iFood
+
+  ifoodIntegration(establishmentId: string): Observable<IfoodIntegration> {
+    return this.http.get<IfoodIntegration>(`${this.baseUrl}/establishments/${establishmentId}/integrations/ifood`);
+  }
+
+  /** Liga a loja a uma loja do iFood pelo ID (merchantId). null desconecta. */
+  linkIfood(establishmentId: string, merchantId: string | null): Observable<IfoodIntegration> {
+    return this.http.put<IfoodIntegration>(`${this.baseUrl}/establishments/${establishmentId}/integrations/ifood`, { merchant_id: merchantId });
+  }
+
+  ifoodCancellationReasons(establishmentId: string, orderId: string): Observable<CancellationReason[]> {
+    return this.http.get<CancellationReason[]>(`${this.baseUrl}/establishments/${establishmentId}/orders/${orderId}/ifood/cancellation-reasons`);
   }
 
   categories(establishmentId: string): Observable<Category[]> {

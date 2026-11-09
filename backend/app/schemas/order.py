@@ -59,6 +59,9 @@ class OrderOut(ORMModel):
     neighborhood: str | None = None
     courier_id: str | None = None
     courier_name: str | None = None
+    integration: str | None = None
+    external_display_id: str | None = None
+    marketplace_delivery: bool = False
     created_at: datetime
     updated_at: datetime
     items: list[OrderItemOut] = []
@@ -113,6 +116,8 @@ class LocalOrderCreate(BaseModel):
 class OrderStatusUpdate(BaseModel):
     status: OrderStatus
     cancel_reason: str | None = None
+    # Pedido do iFood: codigo do motivo oficial (GET .../ifood/cancellation-reasons)
+    cancel_code: str | None = Field(default=None, max_length=10)
     # Motoboy que levou o pedido (ao mudar para "saiu para entrega")
     courier_id: str | None = None
 
