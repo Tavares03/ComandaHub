@@ -1,0 +1,9 @@
+# Normaliza finais de linha no repositorio
+* text=auto
+
+# Scripts executados dentro de containers Linux precisam de LF
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+*.png binary
+*.ico binary

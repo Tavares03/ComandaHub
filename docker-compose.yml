@@ -1,0 +1,54 @@
+# Ambiente de desenvolvimento: API (FastAPI) + painel (Angular) com dados demo.
+#
+# Banco: por padrao usa um PostgreSQL que ja roda na sua maquina (porta 5432); o banco
+# "comandahub" e criado sozinho se nao existir. Nao tem PostgreSQL? Suba o incluso:
+#   docker compose --profile db up --build
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        INSTALL_DEV: "true"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@host.docker.internal:5432/comandahub}
+      SECRET_KEY: ${SECRET_KEY:-dev-only-secret-key-troque-em-producao-0123}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:4200,http://127.0.0.1:4200}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+    extra_hosts:
+      # Permite alcancar o PostgreSQL da maquina (tambem no Linux)
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    ports:
+      - "4200:4200"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # Opcional: PostgreSQL proprio (docker compose --profile db up). Publica a 5432 na maquina,
+  # entao a API o encontra pelo mesmo endereco padrao.
+  db:
+    image: postgres:17-alpine
+    profiles: ["db"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: comandahub
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d comandahub"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres_data:
